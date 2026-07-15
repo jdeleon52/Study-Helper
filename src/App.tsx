@@ -124,7 +124,7 @@ function Header({ onExport, onImport }: { onExport: () => void; onImport: (file:
     <header className="topbar">
       <div className="brand">
         <div className="brand-mark"><Brain size={23} /></div>
-        <div><strong>Anatomy Study Helper</strong><span>Learn, test, improve.</span></div>
+        <div><strong>Study Helper</strong><span>Learn, test, improve.</span></div>
       </div>
       <div className="topbar-actions">
         <button className="button ghost" onClick={() => inputRef.current?.click()}><FileUp size={17} /> Import</button>

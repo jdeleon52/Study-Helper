@@ -59,7 +59,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `anatomy-study-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `study-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
     setToast('Backup exported.');
@@ -223,7 +223,7 @@ function QuestionManager({ data, setData, notify }: { data: AppData; setData: Re
   };
 
   return <>
-    <PageTitle eyebrow="Question bank" title="Build your study material" description="Create custom anatomy topics and keep questions easy to edit, search, back up, and share." action={<div className="button-row"><button className="button secondary" onClick={() => setShowTopicForm(true)}><CirclePlus size={18} /> Add topic</button><button className="button primary" disabled={!data.topics.length} onClick={() => { setEditing(null); setShowQuestionForm(true); }}><CirclePlus size={18} /> Add question</button></div>} />
+    <PageTitle eyebrow="Question bank" title="Build your study material" description="Create custom topics and keep questions easy to edit, search, back up, and share." action={<div className="button-row"><button className="button secondary" onClick={() => setShowTopicForm(true)}><CirclePlus size={18} /> Add topic</button><button className="button primary" disabled={!data.topics.length} onClick={() => { setEditing(null); setShowQuestionForm(true); }}><CirclePlus size={18} /> Add question</button></div>} />
     <section className="panel compact-panel">
       <div className="filters"><label className="search-box"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search questions or answers" /></label><select value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="all">All topics</option>{data.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></div>
     </section>
@@ -261,7 +261,7 @@ function QuizSetup({ data, onStart }: { data: AppData; onStart: (questions: Ques
   const [count, setCount] = useState(10);
   const actualCount = Math.min(Math.max(1, count), available.length || 1);
   return <>
-    <PageTitle eyebrow="Quiz setup" title="Choose what to practice" description="Quiz yourself from one anatomy topic or mix questions from your full question bank." />
+    <PageTitle eyebrow="Quiz setup" title="Choose what to practice" description="Quiz yourself from one topic or mix questions from your full question bank." />
     <section className="panel quiz-setup-card">
       <div className="form-stack"><label>Question source<select value={topicId} onChange={(event) => setTopicId(event.target.value)}><option value="all">All topics</option>{data.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></label><label>Number of questions<input type="number" min={1} max={Math.max(1, available.length)} value={count} onChange={(event) => setCount(Number(event.target.value))} /></label><div className="setup-summary"><span>{available.length} available question{available.length === 1 ? '' : 's'}</span><span>{available.length ? actualCount : 0} will be selected randomly</span></div><button className="button primary large" disabled={!available.length} onClick={() => onStart(shuffle(available).slice(0, actualCount), topicId)}><BookOpenCheck size={20} /> Begin quiz</button>{!available.length && <p className="warning-text">Add at least one question in this topic before starting a quiz.</p>}</div>
     </section>

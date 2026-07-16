@@ -211,7 +211,7 @@ export default function App() {
       supabase
         .from("quiz_attempts")
         .select("*")
-        .order("created_at", { ascending: true }),
+        .order("completed_at", { ascending: false }),
 
       supabase
         .from("quiz_answers")

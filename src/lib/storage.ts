@@ -6,39 +6,8 @@ const now = () => new Date().toISOString();
 
 export const starterData: AppData = {
   version: 1,
-  topics: [
-    { id: 'skeletal', name: 'Skeletal System', createdAt: now() },
-    { id: 'muscular', name: 'Muscular System', createdAt: now() },
-    { id: 'nervous', name: 'Nervous System', createdAt: now() },
-  ],
-  questions: [
-    {
-      id: 'q1',
-      topicId: 'skeletal',
-      prompt: 'What is the longest bone in the human body?',
-      answer: 'The femur.',
-      notes: 'It is located in the thigh.',
-      createdAt: now(),
-      updatedAt: now(),
-    },
-    {
-      id: 'q2',
-      topicId: 'muscular',
-      prompt: 'Which muscle is the primary mover for elbow flexion?',
-      answer: 'The biceps brachii.',
-      createdAt: now(),
-      updatedAt: now(),
-    },
-    {
-      id: 'q3',
-      topicId: 'nervous',
-      prompt: 'Which nerve primarily innervates the diaphragm?',
-      answer: 'The phrenic nerve.',
-      notes: 'Remember C3, C4, C5 keep the diaphragm alive.',
-      createdAt: now(),
-      updatedAt: now(),
-    },
-  ],
+  topics: [],
+  questions: [],
   attempts: [],
 };
 

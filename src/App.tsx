@@ -21,6 +21,9 @@ import {
 import type { AppData, Question, QuizAnswer, QuizAttempt, Topic } from './types';
 import { loadData, saveData, validateImport } from './lib/storage';
 import { buildStudyRoute, getMissedQuestions, getTopicStats, questionTopicName } from './lib/stats';
+import { supabase } from "./lib/supabase";
+import type { Session } from "@supabase/supabase-js";
+import AuthForm from './components/AuthForm';
 
 type View = 'dashboard' | 'questions' | 'quiz-setup' | 'quiz' | 'results' | 'history';
 
@@ -40,13 +43,41 @@ export default function App() {
   const [quiz, setQuiz] = useState<QuizState | null>(null);
   const [lastAttempt, setLastAttempt] = useState<QuizAttempt | null>(null);
   const [toast, setToast] = useState<string>('');
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => saveData(data), [data]);
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(''), 2800);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  /*Track logged-in session */ 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (session) {
+      loadStudyDataFromSupabase();
+    }
+  }, [session]);
 
   const navigate = (next: View) => {
     if (next !== 'quiz') setQuiz(null);
@@ -76,29 +107,211 @@ export default function App() {
     }
   };
 
-  const finishQuiz = (answers: QuizAnswer[], topicId: string | 'all') => {
+  const finishQuiz = async (
+    answers: QuizAnswer[],
+    topicId: string | "all"
+  ) => {
+    if (!session) {
+      setToast("You must be logged in to save quiz results.");
+      return;
+    }
+
+    const score = answers.filter((answer) => answer.correct).length;
+
+    const { data: savedAttempt, error: attemptError } = await supabase
+      .from("quiz_attempts")
+      .insert({
+        user_id: session.user.id,
+        topic_id: topicId,
+        score,
+        total_questions: answers.length,
+      })
+      .select()
+      .single();
+
+    if (attemptError) {
+      setToast(`Could not save quiz: ${attemptError.message}`);
+      return;
+    }
+
+    const answerRows = answers.map((answer) => ({
+      attempt_id: savedAttempt.id,
+      question_id: answer.questionId,
+      was_correct: answer.correct,
+      prompt_snapshot: answer.promptSnapshot,
+      answer_snapshot: answer.answerSnapshot,
+      user_answer: answer.userAnswer,
+      topic_id: answer.topicId,
+    }));
+
+    const { error: answersError } = await supabase
+      .from("quiz_answers")
+      .insert(answerRows);
+
+    if (answersError) {
+      setToast(`Could not save quiz answers: ${answersError.message}`);
+      return;
+  }
+
     const attempt: QuizAttempt = {
-      id: id(),
-      createdAt: new Date().toISOString(),
-      topicId,
-      score: answers.filter((answer) => answer.correct).length,
-      total: answers.length,
+      id: savedAttempt.id,
+      createdAt: savedAttempt.completed_at,
+      topicId: savedAttempt.topic_id,
+      score: savedAttempt.score,
+      total: savedAttempt.total_questions,
       answers,
     };
-    setData((current) => ({ ...current, attempts: [attempt, ...current.attempts] }));
-    setLastAttempt(attempt);
-    setQuiz(null);
-    setView('results');
-  };
+
+  setData((current) => ({
+    ...current,
+    attempts: [attempt, ...current.attempts],
+  }));
+
+  setLastAttempt(attempt);
+  setQuiz(null);
+  setView("results");
+  setToast("Quiz results saved.");
+};
+
+  /*Show login screen when nobody is logged in */
+  if (authLoading) {
+    return <div className="loading-screen">Loading...</div>;
+  }
+  if (!session) {
+    return <AuthForm />;
+  }
+
+  /*logout function */
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut({
+      scope: "local",
+    });
+
+    if (error) {
+      setToast(error.message);
+    }
+  }
+
+  async function loadStudyDataFromSupabase() {
+    if (!session) {
+      return;
+    }
+
+    const [topicsResult, questionsResult, attemptsResult, answersResult] = await Promise.all([
+      supabase
+        .from("topics")
+        .select("*")
+        .order("created_at", { ascending: true }),
+
+      supabase
+        .from("questions")
+        .select("*")
+        .order("created_at", { ascending: true }),
+
+      supabase
+        .from("quiz_attempts")
+        .select("*")
+        .order("created_at", { ascending: true }),
+
+      supabase
+        .from("quiz_answers")
+        .select("*"),
+    ]);
+
+    if (topicsResult.error) {
+      setToast(`Could not load topics: ${topicsResult.error.message}`);
+      return;
+    }
+
+    if (questionsResult.error) {
+      setToast(
+        `Could not load questions: ${questionsResult.error.message}`
+      );
+      return;
+    }
+    
+    if (attemptsResult.error) {
+      setToast(
+        `Could not load quiz history: ${attemptsResult.error.message}`
+      );
+      return;
+    }
+
+    if (answersResult.error) {
+      setToast(
+        `Could not load quiz answers: ${answersResult.error.message}`
+      );
+      return;
+    }
+
+    const convertedAnswers: Array<
+      QuizAnswer & { attemptId: string }
+    > = answersResult.data.map((answer) => ({
+      attemptId: answer.attempt_id,
+      questionId: answer.question_id ?? "",
+      promptSnapshot: answer.prompt_snapshot,
+      answerSnapshot: answer.answer_snapshot,
+      userAnswer: answer.user_answer,
+      correct: answer.was_correct,
+      topicId: answer.topic_id ?? "",
+    }));
+
+    const convertedAttempts: QuizAttempt[] =
+      attemptsResult.data.map((attempt) => ({
+        id: attempt.id,
+        createdAt: attempt.completed_at,
+        topicId: attempt.topic_id,
+        score: attempt.score,
+        total: attempt.total_questions,
+        answers: convertedAnswers
+          .filter((answer) => answer.attemptId === attempt.id)
+          .map(({ attemptId, ...answer }) => answer),
+    }));
+
+    const convertedTopics: Topic[] = topicsResult.data.map((topic) => ({
+      id: topic.id,
+      name: topic.name,
+      createdAt: topic.created_at,
+    }));
+
+    const convertedQuestions: Question[] = questionsResult.data.map(
+      (question) => ({
+      id: question.id,
+      topicId: question.topic_id,
+      prompt: question.question,
+      answer: question.answer,
+      notes: question.notes ?? "",
+      createdAt: question.created_at,
+      updatedAt: question.updated_at ?? question.created_at,
+      correctCount: question.correct_count ?? 0,
+      incorrectCount: question.incorrect_count ?? 0,
+      })
+    );
+
+    setData((current) => ({
+      ...current,
+      topics: convertedTopics,
+      questions: convertedQuestions,
+      attempts: convertedAttempts,
+    }));
+  }
 
   return (
     <div className="app-shell">
       <Header onExport={exportData} onImport={importData} />
+
       <div className="page-layout">
-        <Sidebar view={view} navigate={navigate} />
+        <div>
+          <Sidebar view={view} navigate={navigate} />
+
+          <button className="nav-link logout-button" onClick={handleLogout}>
+            Log out
+          </button>
+
+        </div>
         <main className="main-content">
           {view === 'dashboard' && <Dashboard data={data} navigate={navigate} />}
-          {view === 'questions' && <QuestionManager data={data} setData={setData} notify={setToast} />}
+          {view === 'questions' && <QuestionManager data={data} setData={setData} notify={setToast} userId={session.user.id} />}
           {view === 'quiz-setup' && (
             <QuizSetup
               data={data}
@@ -196,7 +409,7 @@ function StatCard({ icon, label, value, detail }: { icon: React.ReactNode; label
   return <article className="stat-card"><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong><small>{detail}</small></div></article>;
 }
 
-function QuestionManager({ data, setData, notify }: { data: AppData; setData: React.Dispatch<React.SetStateAction<AppData>>; notify: (text: string) => void }) {
+function QuestionManager({ data, setData, notify, userId }: { data: AppData; setData: React.Dispatch<React.SetStateAction<AppData>>; notify: (text: string) => void; userId: string }) {
   const [search, setSearch] = useState('');
   const [topicFilter, setTopicFilter] = useState('all');
   const [editing, setEditing] = useState<Question | null>(null);
@@ -209,17 +422,61 @@ function QuestionManager({ data, setData, notify }: { data: AppData; setData: Re
     return matchesTopic && (!term || question.prompt.toLowerCase().includes(term) || question.answer.toLowerCase().includes(term));
   });
 
-  const deleteQuestion = (question: Question) => {
-    if (!window.confirm(`Delete “${question.prompt}”?`)) return;
-    setData((current) => ({ ...current, questions: current.questions.filter((item) => item.id !== question.id) }));
-    notify('Question deleted.');
+  const deleteQuestion = async (question: Question) => {
+    if (!window.confirm(`Delete “${question.prompt}”?`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("questions")
+      .delete()
+      .eq("id", question.id);
+
+    if (error) {
+      notify(`Could not delete question: ${error.message}`);
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      questions: current.questions.filter(
+        (item) => item.id !== question.id
+      )
+    }));
+
+    notify("Question deleted.");
   };
 
-  const deleteTopic = (topic: Topic) => {
-    const questionCount = data.questions.filter((question) => question.topicId === topic.id).length;
-    if (questionCount) { notify('Move or delete this topic’s questions first.'); return; }
-    if (!window.confirm(`Delete the topic “${topic.name}”?`)) return;
-    setData((current) => ({ ...current, topics: current.topics.filter((item) => item.id !== topic.id) }));
+  const deleteTopic = async (topic: Topic) => {
+    const questionCount = data.questions.filter(
+      (question) => question.topicId === topic.id
+    ).length;
+
+    if (questionCount) {
+      notify("Move or delete this topic’s questions first.");
+      return;
+    }
+
+    if (!window.confirm(`Delete the topic “${topic.name}”?`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("topics")
+      .delete()
+      .eq("id", topic.id);
+
+    if (error) {
+      notify(`Could not delete topic: ${error.message}`);
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      topics: current.topics.filter((item) => item.id !== topic.id),
+    }));
+
+    notify("Topic deleted.");
   };
 
   return <>
@@ -232,9 +489,129 @@ function QuestionManager({ data, setData, notify }: { data: AppData; setData: Re
       {filtered.map((question) => <article className="question-card" key={question.id}><div className="question-card-main"><span className="topic-label">{questionTopicName(data, question)}</span><h3>{question.prompt}</h3><p><strong>Answer:</strong> {question.answer}</p>{question.notes && <small>{question.notes}</small>}</div><div className="card-actions"><button className="icon-button" aria-label="Edit question" onClick={() => { setEditing(question); setShowQuestionForm(true); }}><Pencil size={17} /></button><button className="icon-button danger" aria-label="Delete question" onClick={() => deleteQuestion(question)}><Trash2 size={17} /></button></div></article>)}
       {!filtered.length && <div className="panel"><EmptyState title="No questions found" text={data.questions.length ? 'Try changing your search or topic filter.' : 'Add your first question to begin studying.'} /></div>}
     </section>
-    {showQuestionForm && <QuestionModal data={data} question={editing} onClose={() => setShowQuestionForm(false)} onSave={(question) => { setData((current) => ({ ...current, questions: editing ? current.questions.map((item) => item.id === question.id ? question : item) : [question, ...current.questions] })); setShowQuestionForm(false); notify(editing ? 'Question updated.' : 'Question added.'); }} />}
-    {showTopicForm && <TopicModal onClose={() => setShowTopicForm(false)} onSave={(name) => { const topic: Topic = { id: id(), name, createdAt: new Date().toISOString() }; setData((current) => ({ ...current, topics: [...current.topics, topic] })); setShowTopicForm(false); notify('Topic added.'); }} />}
-  </>;
+  {showQuestionForm && (
+    <QuestionModal
+      data={data}
+      question={editing}
+      onClose={() => setShowQuestionForm(false)}
+      onSave={async (question) => {
+        if (editing) {
+          const { data: updatedQuestion, error } = await supabase
+            .from("questions")
+            .update({
+              topic_id: question.topicId,
+              question: question.prompt,
+              answer: question.answer,
+              notes: question.notes || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", question.id)
+            .select()
+            .single();
+
+          if (error) {
+            notify(`Could not update question: ${error.message}`);
+            return;
+          }
+
+          const convertedQuestion: Question = {
+            ...question,
+            id: updatedQuestion.id,
+            topicId: updatedQuestion.topic_id,
+            prompt: updatedQuestion.question,
+            answer: updatedQuestion.answer,
+            createdAt: updatedQuestion.created_at,
+            updatedAt: updatedQuestion.updated_at,
+            notes: updatedQuestion.notes ?? "",
+          };
+
+          setData((current) => ({
+            ...current,
+            questions: current.questions.map((item) =>
+              item.id === convertedQuestion.id
+                ? convertedQuestion
+                : item
+            ),
+          }));
+
+          notify("Question updated.");
+        } else {
+          const { data: savedQuestion, error } = await supabase
+            .from("questions")
+            .insert({
+              user_id: userId,
+              topic_id: question.topicId,
+              question: question.prompt,
+              answer: question.answer,
+              notes: question.notes || null,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            notify(`Could not add question: ${error.message}`);
+            return;
+          }
+
+          const convertedQuestion: Question = {
+            ...question,
+            id: savedQuestion.id,
+            topicId: savedQuestion.topic_id,
+            prompt: savedQuestion.question,
+            answer: savedQuestion.answer,
+            createdAt: savedQuestion.created_at,
+            updatedAt: savedQuestion.updated_at,
+            notes: savedQuestion.notes ?? "",
+          };
+
+          setData((current) => ({
+            ...current,
+            questions: [convertedQuestion, ...current.questions],
+          }));
+
+          notify("Question added.");
+        }
+
+        setShowQuestionForm(false);
+        setEditing(null);
+      }}
+    />
+  )}
+    {showTopicForm && (
+    <TopicModal
+      onClose={() => setShowTopicForm(false)}
+      onSave={async (name) => {
+        const { data: savedTopic, error } = await supabase
+          .from("topics")
+          .insert({
+            user_id: userId,
+            name,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          notify(`Could not add topic: ${error.message}`);
+          return;
+        }
+
+        const topic: Topic = {
+          id: savedTopic.id,
+          name: savedTopic.name,
+          createdAt: savedTopic.created_at,
+        };
+
+        setData((current) => ({
+          ...current,
+          topics: [...current.topics, topic],
+        }));
+
+        setShowTopicForm(false);
+        notify("Topic added.");
+      }}
+    />
+  )}
+    </>;
 }
 
 function QuestionModal({ data, question, onClose, onSave }: { data: AppData; question: Question | null; onClose: () => void; onSave: (question: Question) => void }) {

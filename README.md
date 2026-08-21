@@ -50,7 +50,4 @@ All questions, topics, and quiz history are stored in the current browser using 
 The project is organized so it can later add:
 
 - AI-generated study plans through a protected backend API
-- User accounts and cloud synchronization
-- Multiple-choice question types
-- Anatomy image-labeling exercises
 - Spaced repetition scheduling

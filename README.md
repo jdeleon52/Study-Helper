@@ -1,6 +1,6 @@
-# Anatomy Study Helper
+# Study Helper
 
-A mobile-friendly anatomy study web app that runs entirely in the browser. Users can create custom topics and questions, take quizzes, review correct and incorrect answers, inspect quiz history, and follow performance-based study recommendations.
+A mobile-friendly study web app that runs entirely in the browser. Users can create custom topics and questions, take quizzes, review correct and incorrect answers, inspect quiz history, and follow performance-based study recommendations.
 
 ## Features
 
